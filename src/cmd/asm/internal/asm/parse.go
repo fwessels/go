@@ -12,6 +12,7 @@ import (
 	"log"
 	"os"
 	"strconv"
+	"strings"
 	"text/scanner"
 	"unicode/utf8"
 
@@ -147,6 +148,9 @@ func (p *Parser) line() bool {
 				if tok == ':' {
 					// Labels.
 					p.pendingLabels = append(p.pendingLabels, word)
+					if *flags.Preprocess {
+						fmt.Printf("%s:\n", word)
+					}
 					return true
 				}
 			}
@@ -188,15 +192,49 @@ func (p *Parser) line() bool {
 		}
 	}
 	if p.pseudo(word, operands) {
+		if *flags.Preprocess {
+			fmt.Print(word)
+			dumpOperands(operands, word == "TEXT")
+		}
 		return true
 	}
 	i, present := p.arch.Instructions[word]
 	if present {
 		p.instruction(i, word, cond, operands)
+		if *flags.Preprocess {
+			fmt.Printf("\t%s", word)
+			dumpOperands(operands, false)
+		}
+		return true
+	}
+	if *flags.Preprocess && word == strings.ToLower(word) { // allow lower-case instructions to pass through
+		fmt.Printf("\tLONG $0x00000000 // %s", word)
+		dumpOperands(operands, false)
 		return true
 	}
 	p.errorf("unrecognized instruction %q", word)
 	return true
+}
+
+func dumpOperands(operands [][]lex.Token, restoreCenterDot bool) {
+	for i, o := range operands {
+		if i == 0 {
+			fmt.Print(" ")
+		} else if i < len(operands) {
+			fmt.Print(", ")
+		}
+		for io, item := range o {
+			if io == 0 && restoreCenterDot {
+				//  Restore center dot, as in ·x
+				s := item.String()
+				s = strings.Replace(s, `"".`, "\u00B7", -1)
+				fmt.Print(s)
+			} else {
+				fmt.Print(item)
+			}
+		}
+	}
+	fmt.Println()
 }
 
 func (p *Parser) instruction(op obj.As, word, cond string, operands [][]lex.Token) {
